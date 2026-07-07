@@ -42,6 +42,17 @@ public partial class MainForm : Form
     private bool _roamingEnabled = true;
     private ToolStripMenuItem? _roamingMenuItem;
 
+    // Follow cursor
+    private bool _followEnabled;
+    private ToolStripMenuItem? _followMenuItem;
+    private Point _lastMousePosition;
+    private DateTime _lastMouseActivityTime = DateTime.UtcNow;
+    private bool _reachedFollowTarget;
+    private DateTime _roamAllowedAfter = DateTime.MinValue;
+    private const double FollowInactivitySeconds = 10;
+    private const double FollowArrivalPauseSeconds = 5;
+    private const int FollowMouseMoveThreshold = 12;
+
     private enum RoamingSpeed { Slow, Medium, Fast, Ludicrous }
     private RoamingSpeed _currentSpeed = RoamingSpeed.Medium;
 
@@ -100,6 +111,11 @@ public partial class MainForm : Form
         _roamingMenuItem.Checked = _roamingEnabled;
         _roamingMenuItem.CheckedChanged += RoamingMenuItem_CheckedChanged;
 
+        _followMenuItem = new ToolStripMenuItem("Follow Cursor");
+        _followMenuItem.CheckOnClick = true;
+        _followMenuItem.Checked = _followEnabled;
+        _followMenuItem.CheckedChanged += FollowMenuItem_CheckedChanged;
+
         var alwaysOnTopItem = new ToolStripMenuItem("Always on Top");
         alwaysOnTopItem.CheckOnClick = true;
         alwaysOnTopItem.Checked = TopMost;
@@ -134,6 +150,7 @@ public partial class MainForm : Form
         menu.Items.Add(petItem);
         menu.Items.Add("-");
         menu.Items.Add(_roamingMenuItem);
+        menu.Items.Add(_followMenuItem);
         menu.Items.Add(alwaysOnTopItem);
         menu.Items.Add(speedMenu);
         menu.Items.Add("-");
@@ -162,6 +179,8 @@ public partial class MainForm : Form
 
     private void SetupTimer()
     {
+        _lastMousePosition = Cursor.Position;
+
         _animationTimer = new Timer
         {
             Interval = 120 // ~8 fps for cute chunky animation
@@ -440,16 +459,24 @@ public partial class MainForm : Form
             _stateTimeLeft--;
             if (_stateTimeLeft <= 0)
             {
-                _currentState = _walkTarget.HasValue ? PetState.Walking : PetState.Idle;
+                _currentState = ShouldBeWalking(Cursor.Position) ? PetState.Walking : PetState.Idle;
             }
         }
 
-        // === Roaming logic ===
         var now = DateTime.UtcNow;
+        Point mousePos = Cursor.Position;
 
-        if (_roamingEnabled && !_walkTarget.HasValue && now >= _nextWalkTime && _currentState == PetState.Idle)
+        RegisterMouseMovement(mousePos, now);
+
+        bool isFollowing = IsFollowingCursor();
+        bool canRoam = CanStartRoaming(now);
+        bool canMove = _stateTimeLeft <= 0 && !_isDragging;
+
+        // === Roaming logic (paused while following, after arrival, or during lead window) ===
+        if (canRoam && !_walkTarget.HasValue && now >= _nextWalkTime && _currentState == PetState.Idle)
         {
-            // Time to roam! Pick a new location on the desktop
+            _reachedFollowTarget = false;
+
             var screen = Screen.PrimaryScreen!.WorkingArea;
             int margin = 90;
 
@@ -458,19 +485,28 @@ public partial class MainForm : Form
                 _rng.Next(screen.Top + 80, screen.Bottom - 140)
             );
 
-            // Decide which way to face based on horizontal travel
-            int dx = _walkTarget.Value.X - Location.X;
-            _facing = Math.Abs(dx) > 20
-                ? (dx > 0 ? Facing.Right : Facing.Left)
+            int roamDx = _walkTarget.Value.X - Location.X;
+            _facing = Math.Abs(roamDx) > 20
+                ? (roamDx > 0 ? Facing.Right : Facing.Left)
                 : Facing.Front;
 
             _currentState = PetState.Walking;
         }
 
-        // Determine the active target (normal roaming)
-        Point? activeTarget = _roamingEnabled && _walkTarget.HasValue ? _walkTarget : null;
+        Point? activeTarget = null;
+        bool followingCursor = false;
 
-        if (activeTarget.HasValue)
+        if (isFollowing && canMove)
+        {
+            activeTarget = GetFollowTarget(mousePos);
+            followingCursor = true;
+        }
+        else if (_roamingEnabled && _walkTarget.HasValue)
+        {
+            activeTarget = _walkTarget;
+        }
+
+        if (activeTarget.HasValue && canMove)
         {
             var target = activeTarget.Value;
             var current = Location;
@@ -479,41 +515,41 @@ public partial class MainForm : Form
             int dy = target.Y - current.Y;
             double distance = Math.Sqrt(dx * dx + dy * dy);
 
-            // Continuously update facing while moving.
             int directionThreshold = _currentSpeed == RoamingSpeed.Ludicrous ? 45 : 20;
 
             if (Math.Abs(dx) > directionThreshold)
-            {
                 _facing = dx > 0 ? Facing.Right : Facing.Left;
-            }
 
-            float arrivalThreshold = Math.Max(14f, GetMovementSpeed() * 0.75f);
+            float arrivalThreshold = GetArrivalThreshold(followingCursor);
 
-            if (distance < arrivalThreshold)
+            if (distance <= arrivalThreshold)
             {
-                // Finished normal roaming target
-                _walkTarget = null;
-                _facing = Facing.Front;
-                _currentState = PetState.Idle;
-                _nextWalkTime = now.AddSeconds(_rng.Next(7, 20));
+                if (followingCursor)
+                    CompleteFollowArrival(target);
+                else
+                {
+                    _walkTarget = null;
+                    _facing = Facing.Front;
+                    _currentState = PetState.Idle;
+                    _nextWalkTime = now.AddSeconds(_rng.Next(7, 20));
+                }
             }
             else
             {
-                // Move toward the target, but never overshoot it
-                float speed = GetMovementSpeed();
-                float moveDistance = Math.Min(speed, (float)distance);
-
-                float moveX = (float)(dx / distance * moveDistance);
-                float moveY = (float)(dy / distance * moveDistance);
-
-                Location = new Point(
-                    (int)Math.Round(current.X + moveX),
-                    (int)Math.Round(current.Y + moveY)
-                );
-
-                if (_currentState != PetState.Walking && _stateTimeLeft <= 0)
+                if (followingCursor && distance <= GetMovementSpeed())
+                    CompleteFollowArrival(target);
+                else
+                {
+                    var nextPos = MoveToward(current, target, GetMovementSpeed(), ensureProgress: !followingCursor);
+                    Location = followingCursor ? nextPos : ClampToWorkingArea(nextPos);
                     _currentState = PetState.Walking;
+                }
             }
+        }
+        else if (canMove && _currentState == PetState.Walking && !_walkTarget.HasValue && !isFollowing)
+        {
+            _currentState = PetState.Idle;
+            _facing = Facing.Front;
         }
 
         // Random idle animations (blink) when sitting still
@@ -961,6 +997,162 @@ public partial class MainForm : Form
         };
     }
 
+    private float GetArrivalThreshold(bool followingCursor)
+    {
+        if (followingCursor)
+            return 8f;
+
+        return Math.Max(14f, GetMovementSpeed() * 0.75f);
+    }
+
+    private void CompleteFollowArrival(Point target)
+    {
+        Location = target;
+        _reachedFollowTarget = true;
+        _roamAllowedAfter = DateTime.UtcNow.AddSeconds(FollowArrivalPauseSeconds);
+        _facing = Facing.Front;
+        _currentState = PetState.Idle;
+    }
+
+    private void RegisterMouseMovement(Point mousePos, DateTime now)
+    {
+        int dx = mousePos.X - _lastMousePosition.X;
+        int dy = mousePos.Y - _lastMousePosition.Y;
+        if (dx * dx + dy * dy < FollowMouseMoveThreshold * FollowMouseMoveThreshold)
+            return;
+
+        _lastMousePosition = mousePos;
+        _lastMouseActivityTime = now;
+
+        if (_followEnabled)
+        {
+            _walkTarget = null;
+            _reachedFollowTarget = false;
+            _roamAllowedAfter = DateTime.MinValue;
+        }
+    }
+
+    private bool CanStartRoaming(DateTime now)
+    {
+        if (!_roamingEnabled || IsFollowingCursor())
+            return false;
+
+        if (_reachedFollowTarget)
+            return now >= _roamAllowedAfter;
+
+        return !IsCursorLeadActive();
+    }
+
+    private bool IsCursorLeadActive()
+    {
+        return (DateTime.UtcNow - _lastMouseActivityTime).TotalSeconds < FollowInactivitySeconds;
+    }
+
+    private Point GetFollowTarget(Point mousePos)
+    {
+        var ideal = new Point(
+            mousePos.X - ClientSize.Width / 2,
+            mousePos.Y - ClientSize.Height / 2);
+        return ClampToBounds(ideal, GetCombinedWorkingArea(), ClientSize);
+    }
+
+    private static Point MoveToward(Point current, Point target, float speed, bool ensureProgress)
+    {
+        int dx = target.X - current.X;
+        int dy = target.Y - current.Y;
+        double distance = Math.Sqrt(dx * dx + dy * dy);
+
+        if (distance < 0.001)
+            return current;
+
+        float moveDistance = Math.Min(speed, (float)distance);
+        float moveX = (float)(dx / distance * moveDistance);
+        float moveY = (float)(dy / distance * moveDistance);
+
+        int newX = (int)Math.Round(current.X + moveX);
+        int newY = (int)Math.Round(current.Y + moveY);
+
+        if (ensureProgress && newX == current.X && newY == current.Y)
+        {
+            if (dx != 0) newX = current.X + Math.Sign(dx);
+            if (dy != 0) newY = current.Y + Math.Sign(dy);
+        }
+
+        return new Point(newX, newY);
+    }
+
+    private static Rectangle GetCombinedWorkingArea()
+    {
+        int left = int.MaxValue;
+        int top = int.MaxValue;
+        int right = int.MinValue;
+        int bottom = int.MinValue;
+
+        foreach (var screen in Screen.AllScreens)
+        {
+            var area = screen.WorkingArea;
+            left = Math.Min(left, area.Left);
+            top = Math.Min(top, area.Top);
+            right = Math.Max(right, area.Right);
+            bottom = Math.Max(bottom, area.Bottom);
+        }
+
+        return Rectangle.FromLTRB(left, top, right, bottom);
+    }
+
+    private static Point ClampToBounds(Point location, Rectangle bounds, Size formSize)
+    {
+        int maxX = bounds.Right - formSize.Width;
+        int maxY = bounds.Bottom - formSize.Height;
+        return new Point(
+            Math.Clamp(location.X, bounds.Left, Math.Max(bounds.Left, maxX)),
+            Math.Clamp(location.Y, bounds.Top, Math.Max(bounds.Top, maxY)));
+    }
+
+    private bool IsFollowingCursor()
+    {
+        return _followEnabled && !_reachedFollowTarget;
+    }
+
+    private double GetDistanceToFollowTarget(Point mousePos)
+    {
+        var target = GetFollowTarget(mousePos);
+        int dx = target.X - Location.X;
+        int dy = target.Y - Location.Y;
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
+
+    private bool ShouldBeWalking(Point mousePos)
+    {
+        if (_walkTarget.HasValue) return true;
+        if (_stateTimeLeft > 0 || _isDragging) return false;
+        return IsFollowingCursor();
+    }
+
+    private Point ClampToWorkingArea(Point location)
+        => ClampToBounds(location, GetCombinedWorkingArea(), ClientSize);
+
+    private void FollowMenuItem_CheckedChanged(object? sender, EventArgs e)
+    {
+        if (_followMenuItem == null) return;
+
+        _followEnabled = _followMenuItem.Checked;
+
+        if (_followEnabled)
+        {
+            _lastMousePosition = Cursor.Position;
+            _lastMouseActivityTime = DateTime.UtcNow;
+            _walkTarget = null;
+            _reachedFollowTarget = false;
+            _roamAllowedAfter = DateTime.MinValue;
+        }
+        else
+        {
+            _reachedFollowTarget = false;
+            _roamAllowedAfter = DateTime.MinValue;
+        }
+    }
+
     private void RoamingMenuItem_CheckedChanged(object? sender, EventArgs e)
     {
         if (_roamingMenuItem == null) return;
@@ -1008,7 +1200,7 @@ A cute little Doge-style Shiba Inu that lives on your desktop.
 
 Created by David Mouton
 
-Roaming • Petting • Multiple Speeds
+Roaming • Follow Cursor • Petting • Multiple Speeds
 
 Thank you for playing with Doge!";
 
