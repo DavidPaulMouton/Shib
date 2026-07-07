@@ -1,4 +1,4 @@
-# DodgePet — Tiny Desktop Shiba (Dodge Coin style)
+# DogePet — Tiny Desktop Shiba (Doge Coin style)
 
 A cute little always-on-top Shiba Inu that lives on your desktop.
 
@@ -20,7 +20,7 @@ dotnet build -c Release
 ```
 
 The executable will be in:
-`bin\Release\net8.0-windows\win-x64\publish\DodgePet.exe` (after publish)
+`bin\Release\net8.0-windows\win-x64\publish\DogePet.exe` (after publish)
 
 Or simply:
 
@@ -56,7 +56,6 @@ The app resizes them to the target pet size automatically.
 - Walking around the screen
 - More animations (sleep, eat coin, zoomies)
 - Persistent happiness across runs
-- "Feed Dodge coin" mini interaction
+- "Feed Doge coin" mini interaction
 
-Made with ❤️ for the Dodge community (and all Shiba lovers).
-"# Shib" 
+Made with ❤️ for the Doge community (and all Shiba lovers).

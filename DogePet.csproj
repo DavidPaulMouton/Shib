@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>DogePet.ico</ApplicationIcon>
+    <StartupObject />
+    <!-- Nice single-file publish later -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="tools\**" />
+    <Content Remove="tools\**" />
+    <None Remove="tools\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Sprites\front_idle.png" />
+    <EmbeddedResource Include="Sprites\front_blink.png" />
+    <EmbeddedResource Include="Sprites\front_happy.png" />
+    <EmbeddedResource Include="Sprites\right_walk1.png" />
+    <EmbeddedResource Include="Sprites\right_walk2.png" />
+    <EmbeddedResource Include="Sprites\right_walk3.png" />
+    <EmbeddedResource Include="Sprites\right_walk4.png" />
+    <EmbeddedResource Include="Sprites\right_walk5.png" />
+    <EmbeddedResource Include="Sprites\right_walk6.png" />
+  </ItemGroup>
+
+</Project>

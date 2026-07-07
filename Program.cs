@@ -1,7 +1,7 @@
 using System;
 using System.Windows.Forms;
 
-namespace DodgePet;
+namespace DogePet;
 
 static class Program
 {
@@ -16,7 +16,7 @@ static class Program
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"DodgePet crashed:\n\n{ex}", "DodgePet Error",
+            MessageBox.Show($"DogePet crashed:\n\n{ex}", "DogePet Error",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
             Console.WriteLine("FATAL ERROR: " + ex);
         }

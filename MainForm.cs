@@ -2,14 +2,15 @@ using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.Reflection;
 using System.Windows.Forms;
 
 using Timer = System.Windows.Forms.Timer;
 
-namespace DodgePet;
+namespace DogePet;
 
 /// <summary>
-/// Main desktop pet form - a tiny always-on-top Dodge-style Shiba Inu.
+/// Main desktop pet form - a tiny always-on-top Doge-style Shiba Inu.
 /// </summary>
 public partial class MainForm : Form
 {
@@ -23,7 +24,7 @@ public partial class MainForm : Form
 
     private float _happiness = 80f; // 0-100, decays slowly
 
-    // Dodge-style pixel art sprites (preferred)
+    // Doge-style pixel art sprites (preferred)
     private Image? _frontIdle, _frontBlink, _frontHappy;
     private Image? _leftWalk1, _leftWalk2, _leftWalk3, _leftWalk4, _leftWalk5, _leftWalk6;
     private Image? _rightWalk1, _rightWalk2, _rightWalk3, _rightWalk4, _rightWalk5, _rightWalk6;
@@ -50,7 +51,7 @@ public partial class MainForm : Form
     private ToolStripMenuItem? _speedLudicrous;
 
     // Pet size (small classic desktop pet size)
-    private const int PetSize = 80;   // matches the new clean 80x80 Dodge pixel sprites
+    private const int PetSize = 80;   // matches the new clean 80x80 Doge pixel sprites
 
     public MainForm()
     {
@@ -64,7 +65,7 @@ public partial class MainForm : Form
         this.BringToFront();
         this.Activate();
 
-        Console.WriteLine("DodgePet started successfully. Window should be visible now.");
+        Console.WriteLine("DogePet started successfully. Window should be visible now.");
     }
 
     private void InitializeComponent()
@@ -127,7 +128,7 @@ public partial class MainForm : Form
         speedMenu.DropDownItems.Add(_speedFast);
         speedMenu.DropDownItems.Add(_speedLudicrous);
 
-        var aboutItem = new ToolStripMenuItem("About DodgePet...");
+        var aboutItem = new ToolStripMenuItem("About DogePet...");
         aboutItem.Click += (_, _) => ShowAbout();
 
         menu.Items.Add(petItem);
@@ -171,46 +172,52 @@ public partial class MainForm : Form
 
     private void LoadSprites()
     {
-        // Look next to the executable first, then fall back to project folder during dev
-        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        string spritesDir = Path.Combine(baseDir, "Sprites");
-
-        if (!Directory.Exists(spritesDir))
-            spritesDir = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..", "Sprites");
+        string externalSpritesDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Sprites");
 
         try
         {
             // Front sprites - use LoadWalkFrame for consistent character size with side views
-            _frontIdle  = LoadWalkFrame(Path.Combine(spritesDir, "front_idle.png"));
-            _frontBlink = LoadWalkFrame(Path.Combine(spritesDir, "front_blink.png"));
-            _frontHappy = LoadWalkFrame(Path.Combine(spritesDir, "front_happy.png"));
+            _frontIdle  = LoadSprite("front_idle.png", externalSpritesDir, walkFrame: true);
+            _frontBlink = LoadSprite("front_blink.png", externalSpritesDir, walkFrame: true);
+            _frontHappy = LoadSprite("front_happy.png", externalSpritesDir, walkFrame: true);
 
             // Side walking animation frames (6-frame walk cycle for smoother stride)
-            // All frames are normalized to identical size using LoadWalkFrame
-            _leftWalk1  = LoadWalkFrame(Path.Combine(spritesDir, "left_walk1.png"));
-            _leftWalk2  = LoadWalkFrame(Path.Combine(spritesDir, "left_walk2.png"));
-            _leftWalk3  = LoadWalkFrame(Path.Combine(spritesDir, "left_walk3.png"));
-            _leftWalk4  = LoadWalkFrame(Path.Combine(spritesDir, "left_walk4.png"));
-            _leftWalk5  = LoadWalkFrame(Path.Combine(spritesDir, "left_walk5.png"));
-            _leftWalk6  = LoadWalkFrame(Path.Combine(spritesDir, "left_walk6.png"));
+            _rightWalk1 = LoadSprite("right_walk1.png", externalSpritesDir, walkFrame: true);
+            _rightWalk2 = LoadSprite("right_walk2.png", externalSpritesDir, walkFrame: true);
+            _rightWalk3 = LoadSprite("right_walk3.png", externalSpritesDir, walkFrame: true);
+            _rightWalk4 = LoadSprite("right_walk4.png", externalSpritesDir, walkFrame: true);
+            _rightWalk5 = LoadSprite("right_walk5.png", externalSpritesDir, walkFrame: true);
+            _rightWalk6 = LoadSprite("right_walk6.png", externalSpritesDir, walkFrame: true);
 
-            _rightWalk1 = LoadWalkFrame(Path.Combine(spritesDir, "right_walk1.png"));
-            _rightWalk2 = LoadWalkFrame(Path.Combine(spritesDir, "right_walk2.png"));
-            _rightWalk3 = LoadWalkFrame(Path.Combine(spritesDir, "right_walk3.png"));
-            _rightWalk4 = LoadWalkFrame(Path.Combine(spritesDir, "right_walk4.png"));
-            _rightWalk5 = LoadWalkFrame(Path.Combine(spritesDir, "right_walk5.png"));
-            _rightWalk6 = LoadWalkFrame(Path.Combine(spritesDir, "right_walk6.png"));
-
-            // Fallbacks to older single-frame files if needed
-            if (_frontIdle == null)  _frontIdle  = LoadAndPrepare(Path.Combine(spritesDir, "idle.png"));
-            if (_frontBlink == null) _frontBlink = LoadAndPrepare(Path.Combine(spritesDir, "blink.png"));
+            // Legacy fallbacks (external folder only)
+            if (_frontIdle == null)  _frontIdle  = LoadSprite("idle.png", externalSpritesDir, walkFrame: false);
+            if (_frontBlink == null) _frontBlink = LoadSprite("blink.png", externalSpritesDir, walkFrame: false);
             if (_frontHappy == null) _frontHappy = _frontIdle;
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Could not load sprites:\n{ex.Message}\n\nPlace improved Dodge-style PNGs in the 'Sprites' folder.",
-                "DodgePet", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show($"Could not load sprites:\n{ex.Message}\n\nPlace improved Doge-style PNGs in the 'Sprites' folder.",
+                "DogePet", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
+    }
+
+    private static Image? LoadSprite(string fileName, string externalSpritesDir, bool walkFrame)
+    {
+        string externalPath = Path.Combine(externalSpritesDir, fileName);
+        if (File.Exists(externalPath))
+            return walkFrame ? LoadWalkFrame(externalPath) : LoadAndPrepare(externalPath);
+
+        using var stream = OpenEmbeddedSprite(fileName);
+        if (stream == null) return null;
+
+        using var original = Image.FromStream(stream);
+        return walkFrame ? ProcessWalkFrame(original) : ProcessPreparedFrame(original);
+    }
+
+    private static Stream? OpenEmbeddedSprite(string fileName)
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        return assembly.GetManifestResourceStream($"DogePet.Sprites.{fileName}");
     }
 
     private static Image? LoadAndPrepare(string path)
@@ -218,8 +225,13 @@ public partial class MainForm : Form
         if (!File.Exists(path)) return null;
 
         using var original = Image.FromFile(path);
+        return ProcessPreparedFrame(original);
+    }
 
-        // Resize to target pet size — use NearestNeighbor for pixel art to keep the crisp Dodge style
+    private static Image ProcessPreparedFrame(Image original)
+    {
+
+        // Resize to target pet size — use NearestNeighbor for pixel art to keep the crisp Doge style
         var resized = new Bitmap(PetSize, PetSize);
         using (var g = Graphics.FromImage(resized))
         {
@@ -230,7 +242,7 @@ public partial class MainForm : Form
 
         // Re-enabled with a very high threshold.
         // Only removes pixels that are extremely close to pure white (255,255,255).
-        // This should remove the background without eating the light cream parts of the Dodge face.
+        // This should remove the background without eating the light cream parts of the Doge face.
         // Distance-based background removal using the actual corner color.
         // 30-40 usually works well for these pixel art sprites.
         MakeBackgroundTransparentSafe(resized, 36);
@@ -248,7 +260,11 @@ public partial class MainForm : Form
         if (!File.Exists(path)) return null;
 
         using var original = Image.FromFile(path);
+        return ProcessWalkFrame(original);
+    }
 
+    private static Image ProcessWalkFrame(Image original)
+    {
         // We want the Shiba to occupy a consistent portion of the 80x80 frame (e.g. ~68px tall)
         const int targetCharacterHeight = 68;
 
@@ -280,7 +296,7 @@ public partial class MainForm : Form
 
     /// <summary>
     /// Detects the background color from the image corners and removes all pixels
-    /// that are similar to it. This is much more reliable for the current Dodge
+    /// that are similar to it. This is much more reliable for the current Doge
     /// sprites than brightness-only or flood-fill methods.
     /// </summary>
     private static void MakeBackgroundTransparentSafe(Bitmap bmp, int tolerance = 32)
@@ -526,7 +542,7 @@ public partial class MainForm : Form
         // Transparent background (magenta is the transparency key)
         g.Clear(BackColor);
 
-        // Render using Dodge-style pixel sprites when available
+        // Render using Doge-style pixel sprites when available
         Image? sprite = null;
         float yOffset = 0;
 
@@ -986,17 +1002,17 @@ public partial class MainForm : Form
     private void ShowAbout()
     {
         string aboutText =
-@"DodgePet
+@"DogePet
 
-A cute little Dodge-style Shiba Inu that lives on your desktop.
+A cute little Doge-style Shiba Inu that lives on your desktop.
 
 Created by David Mouton
 
 Roaming • Petting • Multiple Speeds
 
-Thank you for playing with Dodge!";
+Thank you for playing with Doge!";
 
-        MessageBox.Show(aboutText, "About DodgePet", 
+        MessageBox.Show(aboutText, "About DogePet", 
             MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
