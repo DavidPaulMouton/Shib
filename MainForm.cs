@@ -26,7 +26,6 @@ public partial class MainForm : Form
 
     // Doge-style pixel art sprites (preferred)
     private Image? _frontIdle, _frontBlink, _frontHappy;
-    private Image? _leftWalk1, _leftWalk2, _leftWalk3, _leftWalk4, _leftWalk5, _leftWalk6;
     private Image? _rightWalk1, _rightWalk2, _rightWalk3, _rightWalk4, _rightWalk5, _rightWalk6;
 
     // Dragging support (with threshold so clicks are reliable)
@@ -990,10 +989,10 @@ public partial class MainForm : Form
         return _currentSpeed switch
         {
             RoamingSpeed.Slow      => 1.2f,
-            RoamingSpeed.Medium    => 2.6f,
-            RoamingSpeed.Fast      => 4.8f,
-            RoamingSpeed.Ludicrous => 60f,
-            _ => 2.6f
+            RoamingSpeed.Medium    => 3.0f,
+            RoamingSpeed.Fast      => 13.6f,
+            RoamingSpeed.Ludicrous => 120f,
+            _ => 3.0f
         };
     }
 
