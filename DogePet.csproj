@@ -30,6 +30,24 @@
     <EmbeddedResource Include="Sprites\right_walk4.png" />
     <EmbeddedResource Include="Sprites\right_walk5.png" />
     <EmbeddedResource Include="Sprites\right_walk6.png" />
+    <EmbeddedResource Include="Sprites\Coin Flip\Coin 10.png">
+      <LogicalName>DogePet.Sprites.coin_10.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Sprites\Coin Flip\Coin 11.png">
+      <LogicalName>DogePet.Sprites.coin_11.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Sprites\Coin Flip\Coin 12.png">
+      <LogicalName>DogePet.Sprites.coin_12.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Sprites\Coin Flip\Coin 13.png">
+      <LogicalName>DogePet.Sprites.coin_13.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Sprites\Coin Flip\Coin 14.png">
+      <LogicalName>DogePet.Sprites.coin_14.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Sprites\Coin Flip\Coin 15.png">
+      <LogicalName>DogePet.Sprites.coin_15.png</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>

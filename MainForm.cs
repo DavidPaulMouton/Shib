@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Reflection;
 using System.Windows.Forms;
@@ -52,6 +53,20 @@ public partial class MainForm : Form
     private const double FollowArrivalPauseSeconds = 5;
     private const int FollowMouseMoveThreshold = 12;
 
+    // Fetch coin
+    private const int CoinVisualSize = 24;
+    private const int CoinCanvasPadding = 8;
+    private const int CoinCanvasWidth = CoinVisualSize + CoinCanvasPadding * 2;
+    private const int CoinCanvasHeight = CoinVisualSize + CoinCanvasPadding * 2;
+    internal const int CoinVisualCenterX = CoinCanvasPadding + CoinVisualSize / 2;
+    internal const int CoinVisualCenterY = CoinCanvasPadding + CoinVisualSize / 2;
+
+    private bool _fetchEnabled;
+    private bool _syncingFollowFetchMenus;
+    private ToolStripMenuItem? _fetchMenuItem;
+    private CoinOverlayForm? _coinOverlay;
+    private Point? _coinCenter;
+
     private enum RoamingSpeed { Slow, Medium, Fast, Ludicrous }
     private RoamingSpeed _currentSpeed = RoamingSpeed.Medium;
 
@@ -67,6 +82,7 @@ public partial class MainForm : Form
     {
         InitializeComponent();
         LoadSprites();
+        LoadCoinSprite();
         SetupForm();
         SetupTimer();
 
@@ -115,6 +131,11 @@ public partial class MainForm : Form
         _followMenuItem.Checked = _followEnabled;
         _followMenuItem.CheckedChanged += FollowMenuItem_CheckedChanged;
 
+        _fetchMenuItem = new ToolStripMenuItem("Fetch Coin");
+        _fetchMenuItem.CheckOnClick = true;
+        _fetchMenuItem.Checked = _fetchEnabled;
+        _fetchMenuItem.CheckedChanged += FetchMenuItem_CheckedChanged;
+
         var alwaysOnTopItem = new ToolStripMenuItem("Always on Top");
         alwaysOnTopItem.CheckOnClick = true;
         alwaysOnTopItem.Checked = TopMost;
@@ -150,13 +171,14 @@ public partial class MainForm : Form
         menu.Items.Add("-");
         menu.Items.Add(_roamingMenuItem);
         menu.Items.Add(_followMenuItem);
+        menu.Items.Add(_fetchMenuItem);
         menu.Items.Add(alwaysOnTopItem);
         menu.Items.Add(speedMenu);
         menu.Items.Add("-");
         menu.Items.Add("Reset Position", null, ResetPosition);
         menu.Items.Add("-");
         menu.Items.Add(aboutItem);
-        menu.Items.Add("Exit", null, (_, _) => Application.Exit());
+        menu.Items.Add("Exit", null, (_, _) => BeginInvoke(Close));
 
         ContextMenuStrip = menu;
 
@@ -217,6 +239,154 @@ public partial class MainForm : Form
             MessageBox.Show($"Could not load sprites:\n{ex.Message}\n\nPlace improved Doge-style PNGs in the 'Sprites' folder.",
                 "DogePet", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
+    }
+
+    private void LoadCoinSprite()
+    {
+        var frames = LoadCoinFrames();
+        _coinOverlay = new CoinOverlayForm();
+
+        if (frames.Length > 0)
+            _coinOverlay.SetFrames(frames);
+    }
+
+    private static readonly string[] CoinFrameFiles =
+    {
+        "Coin 10.png",
+        "Coin 11.png",
+        "Coin 12.png",
+        "Coin 13.png",
+        "Coin 14.png",
+        "Coin 15.png"
+    };
+
+    private static readonly string[] CoinEmbeddedResources =
+    {
+        "DogePet.Sprites.coin_10.png",
+        "DogePet.Sprites.coin_11.png",
+        "DogePet.Sprites.coin_12.png",
+        "DogePet.Sprites.coin_13.png",
+        "DogePet.Sprites.coin_14.png",
+        "DogePet.Sprites.coin_15.png"
+    };
+
+    private Image[] LoadCoinFrames()
+    {
+        string externalDir = Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory, "Sprites", "Coin Flip");
+
+        var frames = new List<Image>(CoinFrameFiles.Length);
+
+        for (int i = 0; i < CoinFrameFiles.Length; i++)
+        {
+            string externalPath = Path.Combine(externalDir, CoinFrameFiles[i]);
+            using Image? source = File.Exists(externalPath)
+                ? Image.FromFile(externalPath)
+                : LoadEmbeddedImage(CoinEmbeddedResources[i]);
+
+            if (source == null)
+                continue;
+
+            frames.Add(ProcessCoinFrame(source));
+        }
+
+        return frames.ToArray();
+    }
+
+    private static Image? LoadEmbeddedImage(string resourceName)
+    {
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
+        return stream == null ? null : Image.FromStream(stream);
+    }
+
+    private static Image ProcessCoinFrame(Image original)
+    {
+        using var prepared = NormalizeCoinCanvas(original);
+        Rectangle bounds = GetCoinContentBounds(prepared);
+        float centroidX = bounds.X + bounds.Width / 2f;
+        float centroidY = bounds.Y + bounds.Height / 2f;
+
+        // Scale the full source image so the coin content fits the target size.
+        float scale = Math.Min(
+            CoinVisualSize / (float)bounds.Width,
+            CoinVisualSize / (float)bounds.Height);
+        int drawWidth = Math.Max(1, (int)Math.Round(prepared.Width * scale));
+        int drawHeight = Math.Max(1, (int)Math.Round(prepared.Height * scale));
+
+        var frame = new Bitmap(CoinCanvasWidth, CoinCanvasHeight, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(frame))
+        {
+            g.Clear(Color.Transparent);
+            g.InterpolationMode = InterpolationMode.NearestNeighbor;
+            g.PixelOffsetMode = PixelOffsetMode.None;
+            g.CompositingMode = CompositingMode.SourceOver;
+
+            int x = CoinVisualCenterX - (int)Math.Round(centroidX * scale);
+            int y = CoinVisualCenterY - (int)Math.Round(centroidY * scale);
+            g.DrawImage(prepared, x, y, drawWidth, drawHeight);
+        }
+
+        return frame;
+    }
+
+    private static Bitmap NormalizeCoinCanvas(Image original)
+    {
+        using var source = new Bitmap(original.Width, original.Height, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(source))
+        {
+            g.Clear(Color.Transparent);
+            g.DrawImage(original, 0, 0);
+        }
+
+        Rectangle bounds = GetCoinContentBounds(source);
+        int padLeft = bounds.Left;
+        int padTop = bounds.Top;
+        int padRight = source.Width - bounds.Right;
+        int padBottom = source.Height - bounds.Bottom;
+        int targetPad = Math.Max(Math.Max(padLeft, padRight), Math.Max(padTop, padBottom));
+
+        var normalized = new Bitmap(
+            bounds.Width + targetPad * 2,
+            bounds.Height + targetPad * 2,
+            PixelFormat.Format32bppArgb);
+
+        using (var g = Graphics.FromImage(normalized))
+        {
+            g.Clear(Color.Transparent);
+            g.DrawImage(
+                source,
+                targetPad - padLeft,
+                targetPad - padTop);
+        }
+
+        return normalized;
+    }
+
+    private static Rectangle GetCoinContentBounds(Bitmap bmp)
+    {
+        int minX = bmp.Width;
+        int minY = bmp.Height;
+        int maxX = -1;
+        int maxY = -1;
+
+        for (int y = 0; y < bmp.Height; y++)
+        {
+            for (int x = 0; x < bmp.Width; x++)
+            {
+                if (bmp.GetPixel(x, y).A == 0)
+                    continue;
+
+                minX = Math.Min(minX, x);
+                minY = Math.Min(minY, y);
+                maxX = Math.Max(maxX, x);
+                maxY = Math.Max(maxY, y);
+            }
+        }
+
+        if (maxX < minX || maxY < minY)
+            return new Rectangle(0, 0, bmp.Width, bmp.Height);
+
+        return Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1);
     }
 
     private static Image? LoadSprite(string fileName, string externalSpritesDir, bool walkFrame)
@@ -471,8 +641,8 @@ public partial class MainForm : Form
         bool canRoam = CanStartRoaming(now);
         bool canMove = _stateTimeLeft <= 0 && !_isDragging;
 
-        // === Roaming logic (paused while following, after arrival, or during lead window) ===
-        if (canRoam && !_walkTarget.HasValue && now >= _nextWalkTime && _currentState == PetState.Idle)
+        // === Roaming logic (paused while following, fetching, after arrival, or during lead window) ===
+        if (canRoam && !_fetchEnabled && !_walkTarget.HasValue && now >= _nextWalkTime && _currentState == PetState.Idle)
         {
             _reachedFollowTarget = false;
 
@@ -500,6 +670,10 @@ public partial class MainForm : Form
             activeTarget = GetFollowTarget(mousePos);
             followingCursor = true;
         }
+        else if (IsFetchingCoin() && canMove)
+        {
+            activeTarget = GetCoinWalkTarget();
+        }
         else if (_roamingEnabled && _walkTarget.HasValue)
         {
             activeTarget = _walkTarget;
@@ -525,6 +699,8 @@ public partial class MainForm : Form
             {
                 if (followingCursor)
                     CompleteFollowArrival(target);
+                else if (IsFetchingCoin())
+                    CompleteCoinFetch();
                 else
                 {
                     _walkTarget = null;
@@ -545,11 +721,14 @@ public partial class MainForm : Form
                 }
             }
         }
-        else if (canMove && _currentState == PetState.Walking && !_walkTarget.HasValue && !isFollowing)
+        else if (canMove && _currentState == PetState.Walking && !_walkTarget.HasValue && !isFollowing && !IsFetchingCoin())
         {
             _currentState = PetState.Idle;
             _facing = Facing.Front;
         }
+
+        if (_fetchEnabled && _coinOverlay?.Visible == true)
+            _coinOverlay.AdvanceFrame();
 
         // Random idle animations (blink) when sitting still
         if (_currentState == PetState.Idle && _rng.Next(100) < 5)
@@ -1033,7 +1212,7 @@ public partial class MainForm : Form
 
     private bool CanStartRoaming(DateTime now)
     {
-        if (!_roamingEnabled || IsFollowingCursor())
+        if (!_roamingEnabled || IsFollowingCursor() || _fetchEnabled)
             return false;
 
         if (_reachedFollowTarget)
@@ -1124,31 +1303,217 @@ public partial class MainForm : Form
     private bool ShouldBeWalking(Point mousePos)
     {
         if (_walkTarget.HasValue) return true;
+        if (IsFetchingCoin()) return true;
         if (_stateTimeLeft > 0 || _isDragging) return false;
         return IsFollowingCursor();
+    }
+
+    private bool IsFetchingCoin() => _fetchEnabled && _coinCenter.HasValue && !IsFollowingCursor();
+
+    private Point GetCoinWalkTarget()
+    {
+        var center = _coinCenter!.Value;
+        return new Point(
+            center.X - ClientSize.Width / 2,
+            center.Y - ClientSize.Height / 2);
+    }
+
+    private Point PickRandomCoinCenter()
+    {
+        var bounds = GetCombinedWorkingArea();
+        const int margin = 90;
+        const int minDistanceFromDoge = 140;
+        var dogeCenter = new Point(
+            Location.X + ClientSize.Width / 2,
+            Location.Y + ClientSize.Height / 2);
+
+        int minX = bounds.Left + margin;
+        int maxX = bounds.Right - margin;
+        int minY = bounds.Top + margin;
+        int maxY = bounds.Bottom - margin;
+
+        if (maxX <= minX) maxX = minX + 1;
+        if (maxY <= minY) maxY = minY + 1;
+
+        for (int attempt = 0; attempt < 24; attempt++)
+        {
+            var candidate = new Point(_rng.Next(minX, maxX), _rng.Next(minY, maxY));
+            int dx = candidate.X - dogeCenter.X;
+            int dy = candidate.Y - dogeCenter.Y;
+
+            if (dx * dx + dy * dy >= minDistanceFromDoge * minDistanceFromDoge)
+                return candidate;
+        }
+
+        return new Point(_rng.Next(minX, maxX), _rng.Next(minY, maxY));
+    }
+
+    private void SpawnNextCoin()
+    {
+        if (_coinOverlay == null)
+            return;
+
+        _coinCenter = PickRandomCoinCenter();
+        _coinOverlay.ShowAt(_coinCenter.Value);
+        _walkTarget = GetCoinWalkTarget();
+
+        int dx = _coinCenter.Value.X - (Location.X + ClientSize.Width / 2);
+        _facing = Math.Abs(dx) > 20
+            ? (dx > 0 ? Facing.Right : Facing.Left)
+            : Facing.Front;
+
+        _currentState = PetState.Walking;
+    }
+
+    private void CompleteCoinFetch()
+    {
+        _happiness = Math.Min(100, _happiness + 12);
+        SpawnNextCoin();
+    }
+
+    private void HideCoin()
+    {
+        _coinCenter = null;
+        _walkTarget = null;
+        _coinOverlay?.Hide();
     }
 
     private Point ClampToWorkingArea(Point location)
         => ClampToBounds(location, GetCombinedWorkingArea(), ClientSize);
 
+    private void FetchMenuItem_CheckedChanged(object? sender, EventArgs e)
+    {
+        if (_fetchMenuItem == null || _syncingFollowFetchMenus)
+            return;
+
+        if (_fetchMenuItem.Checked)
+            SetExclusiveMode(fetch: true, follow: false);
+        else
+            SetFetchMode(false);
+    }
+
     private void FollowMenuItem_CheckedChanged(object? sender, EventArgs e)
     {
-        if (_followMenuItem == null) return;
+        if (_followMenuItem == null || _syncingFollowFetchMenus)
+            return;
 
-        _followEnabled = _followMenuItem.Checked;
-
-        if (_followEnabled)
-        {
-            _lastMousePosition = Cursor.Position;
-            _lastMouseActivityTime = DateTime.UtcNow;
-            _walkTarget = null;
-            _reachedFollowTarget = false;
-            _roamAllowedAfter = DateTime.MinValue;
-        }
+        if (_followMenuItem.Checked)
+            SetExclusiveMode(fetch: false, follow: true);
         else
+            SetFollowMode(false);
+    }
+
+    private void SetExclusiveMode(bool fetch, bool follow)
+    {
+        _syncingFollowFetchMenus = true;
+        try
         {
-            _reachedFollowTarget = false;
-            _roamAllowedAfter = DateTime.MinValue;
+            if (_fetchMenuItem != null)
+                _fetchMenuItem.Checked = fetch;
+
+            if (_followMenuItem != null)
+                _followMenuItem.Checked = follow;
+
+            _fetchEnabled = fetch;
+            _followEnabled = follow;
+
+            if (fetch)
+            {
+                _reachedFollowTarget = false;
+                _roamAllowedAfter = DateTime.MinValue;
+                _walkTarget = null;
+                SpawnNextCoin();
+            }
+            else
+            {
+                HideCoin();
+            }
+
+            if (follow)
+            {
+                _lastMousePosition = Cursor.Position;
+                _lastMouseActivityTime = DateTime.UtcNow;
+                _walkTarget = null;
+                _reachedFollowTarget = false;
+                _roamAllowedAfter = DateTime.MinValue;
+            }
+            else if (!fetch)
+            {
+                _reachedFollowTarget = false;
+                _roamAllowedAfter = DateTime.MinValue;
+            }
+        }
+        finally
+        {
+            _syncingFollowFetchMenus = false;
+        }
+    }
+
+    private void SetFetchMode(bool enabled)
+    {
+        _syncingFollowFetchMenus = true;
+        try
+        {
+            if (_fetchMenuItem != null)
+                _fetchMenuItem.Checked = enabled;
+
+            _fetchEnabled = enabled;
+
+            if (enabled)
+            {
+                _walkTarget = null;
+                SpawnNextCoin();
+            }
+            else
+            {
+                HideCoin();
+
+                if (_currentState == PetState.Walking && !_followEnabled)
+                {
+                    _currentState = PetState.Idle;
+                    _facing = Facing.Front;
+                }
+            }
+        }
+        finally
+        {
+            _syncingFollowFetchMenus = false;
+        }
+    }
+
+    private void SetFollowMode(bool enabled)
+    {
+        _syncingFollowFetchMenus = true;
+        try
+        {
+            if (_followMenuItem != null)
+                _followMenuItem.Checked = enabled;
+
+            _followEnabled = enabled;
+
+            if (enabled)
+            {
+                _lastMousePosition = Cursor.Position;
+                _lastMouseActivityTime = DateTime.UtcNow;
+                _walkTarget = null;
+                _reachedFollowTarget = false;
+                _roamAllowedAfter = DateTime.MinValue;
+            }
+            else
+            {
+                _reachedFollowTarget = false;
+                _roamAllowedAfter = DateTime.MinValue;
+
+                if (_currentState == PetState.Walking && !_fetchEnabled)
+                {
+                    _currentState = PetState.Idle;
+                    _facing = Facing.Front;
+                }
+            }
+        }
+        finally
+        {
+            _syncingFollowFetchMenus = false;
         }
     }
 
@@ -1199,7 +1564,7 @@ A cute little Doge-style Shiba Inu that lives on your desktop.
 
 Created by David Mouton
 
-Roaming • Follow Cursor • Petting • Multiple Speeds
+Roaming • Follow Cursor • Fetch Coin • Petting • Multiple Speeds
 
 Thank you for playing with Doge!";
 
@@ -1213,6 +1578,15 @@ Thank you for playing with Doge!";
     {
         _animationTimer?.Stop();
         _animationTimer?.Dispose();
+
+        if (_coinOverlay != null)
+        {
+            _coinOverlay.Hide();
+            _coinOverlay.Close();
+            _coinOverlay.Dispose();
+            _coinOverlay = null;
+        }
+
         base.OnFormClosing(e);
     }
 }
